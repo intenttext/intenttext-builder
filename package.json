@@ -5,6 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "api": "node server/render-api.mjs",
+    "dev:all": "npm run api & npm run dev",
+    "parity:check": "node scripts/parity-check.mjs",
+    "font-policy:check": "node scripts/font-policy-check.mjs",
+    "determinism:check": "node scripts/determinism-check.mjs",
+    "pdf-runtime:build": "npm --prefix packages/pdf-runtime run build",
+    "pdf:smoke": "node scripts/pdf-smoke.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },

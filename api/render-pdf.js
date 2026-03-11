@@ -1,20 +1,70 @@
-import { ensurePost, getPdfRuntime, toBase64 } from "./_shared.js";
+import {
+  classifyPdfRuntimeError,
+  createTypedError,
+  ensurePost,
+  getPdfRuntime,
+  toBase64,
+} from "./_shared.js";
 
 export default async function handler(req, res) {
   if (!ensurePost(req, res)) return;
 
   try {
     const template = String(req.body?.template || "");
-    const data =
-      req.body?.data && typeof req.body.data === "object" ? req.body.data : {};
+    if (!template.trim()) {
+      throw createTypedError(
+        "template_error",
+        "TEMPLATE_EMPTY",
+        "Template is required for render-pdf.",
+        422,
+      );
+    }
+
+    let data = {};
+    if (req.body?.data === undefined) {
+      data = {};
+    } else if (req.body?.data && typeof req.body.data === "object") {
+      data = req.body.data;
+    } else {
+      throw createTypedError(
+        "data_error",
+        "DATA_INVALID",
+        "data must be an object for render-pdf.",
+        422,
+      );
+    }
+
     const pdf =
-      req.body?.pdf && typeof req.body.pdf === "object"
-        ? req.body.pdf
-        : undefined;
+      req.body?.pdf === undefined
+        ? undefined
+        : req.body?.pdf && typeof req.body.pdf === "object"
+          ? req.body.pdf
+          : createTypedError(
+              "data_error",
+              "PDF_OPTIONS_INVALID",
+              "pdf must be an object when provided.",
+              422,
+            );
+
+    if (pdf instanceof Error) {
+      throw pdf;
+    }
+
     const runtimeConfig =
-      req.body?.runtimeConfig && typeof req.body.runtimeConfig === "object"
-        ? req.body.runtimeConfig
-        : undefined;
+      req.body?.runtimeConfig === undefined
+        ? undefined
+        : req.body?.runtimeConfig && typeof req.body.runtimeConfig === "object"
+          ? req.body.runtimeConfig
+          : createTypedError(
+              "data_error",
+              "RUNTIME_CONFIG_INVALID",
+              "runtimeConfig must be an object when provided.",
+              422,
+            );
+
+    if (runtimeConfig instanceof Error) {
+      throw runtimeConfig;
+    }
 
     const runtime = await getPdfRuntime();
     if (typeof runtime.createPdf !== "function") {
@@ -32,8 +82,11 @@ export default async function handler(req, res) {
       metrics: result.metrics || null,
     });
   } catch (error) {
-    res.status(400).json({
-      error: error instanceof Error ? error.message : "Unknown error",
+    const classified = classifyPdfRuntimeError(error);
+    res.status(classified.status).json({
+      error: classified.message,
+      type: classified.type,
+      code: classified.code,
     });
   }
 }

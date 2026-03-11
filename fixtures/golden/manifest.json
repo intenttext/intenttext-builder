@@ -9,6 +9,8 @@
     "receipt-footer-only",
     "quote-legal-page",
     "statement-minimal",
-    "invoice-indexed-rows"
+    "invoice-indexed-rows",
+    "style-inline-props",
+    "style-layout-zones"
   ]
 }

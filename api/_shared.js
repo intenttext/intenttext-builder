@@ -1,8 +1,81 @@
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 let corePromise;
 let pdfRuntimePromise;
+
+export function createTypedError(type, code, message, status = 400) {
+  const err = new Error(message);
+  err.type = type;
+  err.code = code;
+  err.status = status;
+  return err;
+}
+
+export function classifyPdfRuntimeError(error) {
+  const message =
+    error instanceof Error ? error.message : String(error || "Unknown error");
+
+  if (error && typeof error === "object") {
+    const type = error.type;
+    const code = error.code;
+    const status = error.status;
+    if (typeof type === "string" && typeof code === "string") {
+      return {
+        type,
+        code,
+        message,
+        status: typeof status === "number" ? status : 400,
+      };
+    }
+  }
+
+  const msg = message.toLowerCase();
+  if (
+    msg.includes("invalid json") ||
+    msg.includes("data") ||
+    msg.includes("payload")
+  ) {
+    return {
+      type: "data_error",
+      code: "DATA_INVALID",
+      message,
+      status: 422,
+    };
+  }
+  if (
+    msg.includes("parse") ||
+    msg.includes("template") ||
+    msg.includes("line:")
+  ) {
+    return {
+      type: "template_error",
+      code: "TEMPLATE_INVALID",
+      message,
+      status: 422,
+    };
+  }
+  if (
+    msg.includes("puppeteer") ||
+    msg.includes("browser") ||
+    msg.includes("pdf") ||
+    msg.includes("chrom")
+  ) {
+    return {
+      type: "pdf_backend_error",
+      code: "PDF_BACKEND_FAILURE",
+      message,
+      status: 503,
+    };
+  }
+  return {
+    type: "render_error",
+    code: "RENDER_RUNTIME_FAILURE",
+    message,
+    status: 500,
+  };
+}
 
 const PAGE_SIZES = new Set(["A4", "LETTER", "LEGAL"]);
 const FIT_HEADER_FOOTER = new Set(["contain", "cover", "stretch"]);
@@ -417,6 +490,14 @@ export function getPdfRuntime() {
 
 export function toBase64(bytes) {
   return Buffer.from(bytes).toString("base64");
+}
+
+export function normalizeHtml(html) {
+  return String(html).replace(/\s+/g, " ").replace(/>\s+</g, "><").trim();
+}
+
+export function sha256Hex(text) {
+  return createHash("sha256").update(String(text)).digest("hex");
 }
 
 export function ensurePost(req, res) {

@@ -68,6 +68,45 @@ export type RenderPdfResponse = {
   metrics: RuntimeMetrics | null;
 };
 
+export type ReplayHtmlRequest = {
+  artifact: {
+    template: string;
+    template_version: string;
+    renderer_version: string;
+    theme_version: string;
+  };
+  data?: Record<string, unknown>;
+};
+
+export type ReplayHtmlResponse = {
+  html: string;
+  replay: {
+    template_version: string;
+    renderer_version: string;
+    theme_version: string;
+    html_sha256: string;
+  };
+  migration: {
+    from: {
+      template_version: string;
+      renderer_version: string;
+      theme_version: string;
+    };
+    to: {
+      template_version: string;
+      renderer_version: string;
+      theme_version: string;
+    };
+    applied_hooks: string[];
+  };
+};
+
+export type RenderPdfErrorResponse = {
+  error: string;
+  type: "template_error" | "data_error" | "render_error" | "pdf_backend_error";
+  code: string;
+};
+
 const API_BASE = import.meta.env.VITE_RENDER_API_BASE_URL ?? "/api";
 
 function endpoint(path: string): string {
@@ -113,7 +152,39 @@ export async function renderPdf(
     body: JSON.stringify(req),
   });
   if (!res.ok) {
-    throw new Error(`renderPdf failed: ${res.status}`);
+    let detail = `renderPdf failed: ${res.status}`;
+    try {
+      const body = (await res.json()) as Partial<RenderPdfErrorResponse>;
+      if (body?.error && body?.type && body?.code) {
+        detail = `${body.type} (${body.code}): ${body.error}`;
+      }
+    } catch {
+      // Keep default status-based error message.
+    }
+    throw new Error(detail);
   }
   return res.json() as Promise<RenderPdfResponse>;
+}
+
+export async function replayHtml(
+  req: ReplayHtmlRequest,
+): Promise<ReplayHtmlResponse> {
+  const res = await fetch(endpoint("/replay-html"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) {
+    let detail = `replayHtml failed: ${res.status}`;
+    try {
+      const body = (await res.json()) as Partial<RenderPdfErrorResponse>;
+      if (body?.error && body?.type && body?.code) {
+        detail = `${body.type} (${body.code}): ${body.error}`;
+      }
+    } catch {
+      // Keep default status-based error message.
+    }
+    throw new Error(detail);
+  }
+  return res.json() as Promise<ReplayHtmlResponse>;
 }

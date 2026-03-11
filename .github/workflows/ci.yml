@@ -47,9 +47,29 @@ jobs:
         working-directory: intenttext-builder
         run: npm run font-policy:check
 
+      - name: Core style compatibility check
+        working-directory: intenttext-builder
+        run: npm run core-style:check
+
       - name: Determinism check
         working-directory: intenttext-builder
         run: npm run determinism:check
+
+      - name: Replay determinism check
+        working-directory: intenttext-builder
+        run: npm run replay:check
+
+      - name: ERP contract check
+        working-directory: intenttext-builder
+        run: npm run erp-contract:check
+
+      - name: Migration contract check
+        working-directory: intenttext-builder
+        run: npm run migration:check
+
+      - name: Runtime error contract check
+        working-directory: intenttext-builder
+        run: npm run runtime-error:check
 
       - name: PDF smoke check
         working-directory: intenttext-builder

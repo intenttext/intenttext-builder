@@ -1,6 +1,8 @@
 import http from "node:http";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { applyArtifactMigrations } from "../api/migration-hooks.js";
 
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || "127.0.0.1";
@@ -9,6 +11,87 @@ const FIT_HEADER_FOOTER = new Set(["contain", "cover", "stretch"]);
 const FIT_BACKGROUND = new Set(["contain", "cover"]);
 const PDF_RUNTIME_ERROR =
   "Unable to load PDF runtime. Build packages/pdf-runtime first or set INTENTTEXT_PDF_RUNTIME_PATH.";
+
+function createTypedError(type, code, message, status = 400) {
+  const err = new Error(message);
+  err.type = type;
+  err.code = code;
+  err.status = status;
+  return err;
+}
+
+function classifyPdfRuntimeError(error) {
+  const message =
+    error instanceof Error ? error.message : String(error || "Unknown error");
+
+  if (error && typeof error === "object") {
+    const type = error.type;
+    const code = error.code;
+    const status = error.status;
+    if (typeof type === "string" && typeof code === "string") {
+      return {
+        type,
+        code,
+        message,
+        status: typeof status === "number" ? status : 400,
+      };
+    }
+  }
+
+  const msg = message.toLowerCase();
+  if (
+    msg.includes("invalid json") ||
+    msg.includes("data") ||
+    msg.includes("payload")
+  ) {
+    return {
+      type: "data_error",
+      code: "DATA_INVALID",
+      message,
+      status: 422,
+    };
+  }
+  if (
+    msg.includes("parse") ||
+    msg.includes("template") ||
+    msg.includes("line:")
+  ) {
+    return {
+      type: "template_error",
+      code: "TEMPLATE_INVALID",
+      message,
+      status: 422,
+    };
+  }
+  if (
+    msg.includes("puppeteer") ||
+    msg.includes("browser") ||
+    msg.includes("pdf") ||
+    msg.includes("chrom")
+  ) {
+    return {
+      type: "pdf_backend_error",
+      code: "PDF_BACKEND_FAILURE",
+      message,
+      status: 503,
+    };
+  }
+
+  return {
+    type: "render_error",
+    code: "RENDER_RUNTIME_FAILURE",
+    message,
+    status: 500,
+  };
+}
+
+function normalizeHtml(html) {
+  return String(html).replace(/\s+/g, " ").replace(/>\s+</g, "><").trim();
+}
+
+function sha256Hex(text) {
+  return createHash("sha256").update(String(text)).digest("hex");
+}
 
 function readJson(req) {
   return new Promise((resolve, reject) => {
@@ -467,16 +550,132 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { html });
     }
 
+    if (req.method === "POST" && matchPath(req.url, "/replay-html")) {
+      const body = await readJson(req);
+      const artifact =
+        body.artifact && typeof body.artifact === "object"
+          ? body.artifact
+          : null;
+      if (!artifact) {
+        throw createTypedError(
+          "data_error",
+          "ARTIFACT_INVALID",
+          "artifact object is required for replay-html.",
+          422,
+        );
+      }
+
+      const migrated = await applyArtifactMigrations(artifact);
+      const normalizedArtifact = migrated.artifact;
+
+      const template = String(normalizedArtifact.template || "");
+      const templateVersion = String(normalizedArtifact.template_version || "");
+      const rendererVersion = String(normalizedArtifact.renderer_version || "");
+      const themeVersion = String(normalizedArtifact.theme_version || "");
+
+      if (!template.trim()) {
+        throw createTypedError(
+          "template_error",
+          "TEMPLATE_EMPTY",
+          "artifact.template is required for replay-html.",
+          422,
+        );
+      }
+      if (
+        !templateVersion.trim() ||
+        !rendererVersion.trim() ||
+        !themeVersion.trim()
+      ) {
+        throw createTypedError(
+          "data_error",
+          "ARTIFACT_VERSION_MISSING",
+          "artifact.template_version, artifact.renderer_version, and artifact.theme_version are required.",
+          422,
+        );
+      }
+
+      const data =
+        body.data === undefined
+          ? {}
+          : body.data && typeof body.data === "object"
+            ? body.data
+            : (() => {
+                throw createTypedError(
+                  "data_error",
+                  "DATA_INVALID",
+                  "data must be an object when provided.",
+                  422,
+                );
+              })();
+
+      const doc = core.parseAndMerge(template, data);
+      const html = core.renderHTML(doc);
+
+      return json(res, 200, {
+        html,
+        replay: {
+          template_version: templateVersion,
+          renderer_version: rendererVersion,
+          theme_version: themeVersion,
+          html_sha256: sha256Hex(normalizeHtml(html)),
+        },
+        migration: migrated.migration,
+      });
+    }
+
     if (req.method === "POST" && matchPath(req.url, "/render-pdf")) {
       const body = await readJson(req);
       const template = String(body.template || "");
-      const data = body.data && typeof body.data === "object" ? body.data : {};
+      if (!template.trim()) {
+        throw createTypedError(
+          "template_error",
+          "TEMPLATE_EMPTY",
+          "Template is required for render-pdf.",
+          422,
+        );
+      }
+
+      let data = {};
+      if (body.data === undefined) {
+        data = {};
+      } else if (body.data && typeof body.data === "object") {
+        data = body.data;
+      } else {
+        throw createTypedError(
+          "data_error",
+          "DATA_INVALID",
+          "data must be an object for render-pdf.",
+          422,
+        );
+      }
+
       const pdf =
-        body.pdf && typeof body.pdf === "object" ? body.pdf : undefined;
+        body.pdf === undefined
+          ? undefined
+          : body.pdf && typeof body.pdf === "object"
+            ? body.pdf
+            : (() => {
+                throw createTypedError(
+                  "data_error",
+                  "PDF_OPTIONS_INVALID",
+                  "pdf must be an object when provided.",
+                  422,
+                );
+              })();
+
       const runtimeConfig =
-        body.runtimeConfig && typeof body.runtimeConfig === "object"
-          ? body.runtimeConfig
-          : undefined;
+        body.runtimeConfig === undefined
+          ? undefined
+          : body.runtimeConfig && typeof body.runtimeConfig === "object"
+            ? body.runtimeConfig
+            : (() => {
+                throw createTypedError(
+                  "data_error",
+                  "RUNTIME_CONFIG_INVALID",
+                  "runtimeConfig must be an object when provided.",
+                  422,
+                );
+              })();
 
       const runtime = await loadPdfRuntime();
       if (typeof runtime.createPdf !== "function") {
@@ -497,6 +696,15 @@ const server = http.createServer(async (req, res) => {
 
     return json(res, 404, { error: "Not found" });
   } catch (error) {
+    if (req.method === "POST" && matchPath(req.url, "/render-pdf")) {
+      const classified = classifyPdfRuntimeError(error);
+      return json(res, classified.status, {
+        error: classified.message,
+        type: classified.type,
+        code: classified.code,
+      });
+    }
+
     return json(res, 400, {
       error: error instanceof Error ? error.message : "Unknown error",
     });

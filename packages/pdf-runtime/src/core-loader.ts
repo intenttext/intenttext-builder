@@ -1,30 +1,13 @@
-import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
 import type { CoreApi } from "./types.js";
 
 export async function loadCore(): Promise<CoreApi> {
-  const srcDir = path.dirname(fileURLToPath(import.meta.url));
-  const localDist = path.resolve(
-    srcDir,
-    "..",
-    "..",
-    "..",
-    "..",
-    "IntentText",
-    "packages",
-    "core",
-    "dist",
-    "index.js",
-  );
-  const candidates = ["@intenttext/core", localDist];
+  const candidates = ["@intenttext/core"];
 
   let coreModule: Record<string, unknown> | null = null;
   let lastErr: unknown = null;
   for (const spec of candidates) {
     try {
-      coreModule = (await import(
-        spec.endsWith(".js") ? pathToFileURL(spec).href : spec
-      )) as Record<string, unknown>;
+      coreModule = (await import(spec)) as Record<string, unknown>;
       break;
     } catch (error) {
       lastErr = error;

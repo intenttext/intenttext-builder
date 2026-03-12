@@ -451,18 +451,21 @@ function validateLayoutIssues(doc) {
 }
 
 async function loadCore() {
+  const serverDir = path.dirname(fileURLToPath(import.meta.url));
   const explicit = process.env.INTENTTEXT_CORE_PATH?.trim();
-  const localDefault = path.resolve(
-    process.cwd(),
+  const runtimeInstalledCore = path.resolve(
+    serverDir,
     "..",
-    "IntentText",
     "packages",
+    "pdf-runtime",
+    "node_modules",
+    "@intenttext",
     "core",
     "dist",
     "index.js",
   );
 
-  const candidates = [explicit, localDefault, "@intenttext/core"].filter(
+  const candidates = [explicit, runtimeInstalledCore, "@intenttext/core"].filter(
     Boolean,
   );
   let lastErr = null;
@@ -476,7 +479,12 @@ async function loadCore() {
       lastErr = err;
     }
   }
-  throw lastErr || new Error("Unable to load IntentText core module");
+  throw (
+    lastErr ||
+    new Error(
+      "Unable to load IntentText core module. Install dependencies in packages/pdf-runtime or set INTENTTEXT_CORE_PATH.",
+    )
+  );
 }
 
 const core = await loadCore();

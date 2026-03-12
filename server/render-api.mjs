@@ -465,9 +465,11 @@ async function loadCore() {
     "index.js",
   );
 
-  const candidates = [explicit, runtimeInstalledCore, "@intenttext/core"].filter(
-    Boolean,
-  );
+  const candidates = [
+    explicit,
+    runtimeInstalledCore,
+    "@intenttext/core",
+  ].filter(Boolean);
   let lastErr = null;
   for (const spec of candidates) {
     try {
